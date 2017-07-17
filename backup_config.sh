@@ -7,7 +7,7 @@
 # @headurl $HeadURL: svn://.../repo_backup/backup_config.sh $
 
 # ==================== [SETTINGS] ====================
-#cieżka do katalogu WEB (strony internetowe)
+#ścieżka do katalogu WEB (strony internetowe)
 WEB_DIR="/volume1/web" #ścieżka ma być bez slash'a na końcu!!
 
 # LOCAL SOURCE (MariaDB)
