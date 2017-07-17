@@ -1,0 +1,942 @@
+# @version $Id: backup-doc.txt 11 2017-06-28 14:17:38Z Fixer $
+# @date $Date: 2017-06-29 00:17:38 +1000 (Cz, 29 cze 2017) $
+# @revision $Revision: 11 $
+# @author $Author: Fixer $
+# @headurl $HeadURL: svn://fixer.synology.me/repo_backup/backup-doc.txt $
+
+SKRYPT "AZWKZ"
+   Automatyzacji Zadań Wykonywania Kopii Zapasowych (ustawień DSM, baza mariaDB, web, fotki, svn) na serwerze Synology 
+   z możliwością wysłania takiej kopii na dodatkowy zewnętrzny serwer FTP.
+   
+   also know as: Automated, Bulletproof File Backup Solution
+
+
+
+# TODO:
+# usunięcie starych archiwów
+# /usr/bin/find ${BACKUP_DIR} -name 'backup_.*' -mtime +${DAYS_KEEP} -delete
+
+# usuwanie starych archiwów po czasie
+# /usr/bin/find ${BACKUP_DIR}* -mtime +${DAYS_KEEP} -exec rm -f {} \; 2> /dev/null
+
+# remove all backups except the $KEEP latests
+# BACKUPS=`find ${BACKUP_DIR} -name "backup_.*" | wc -l | sed 's/\ //g'`
+# while [ $BACKUPS -ge $KEEP ]
+# do
+#   ls -tr1 ${BACKUP_DIR}/backup_.* | head -n 1 | xargs rm -f 
+#   BACKUPS=`expr $BACKUPS - 1` 
+#   echo "deleting from local NAS /backup/$i";
+#   #/usr/bin/find ${BACKUP_DIR} -name '${i}' -mtime +${DAYS_KEEP} -exec rm -f {} \; 2> /dev/null
+# done
+
+
+MANUALE:
+   parametry do 7zip'a: https://sevenzip.osdn.jp/chm/cmdline/switches/
+   RAR - opis parametrów i przełączników (https://www.scribd.com/document/336576638/Rar-txt)
+   -rr10p - 10% redundancja danych (data recovery record)
+   /usr/bin/rar/x64/rar a -r "${BACKUP_DIR}/test.rar" "%WEB_DIR%/" -hp"${PASSWORD}" htc -m5 -ep1 -ma5 -mt2 -t -v10000k -x*thumbs.db\* -x*@eaDir\* -x*@tmp\* -x*#recycle\* -x*#lost+found\* -x*.DS_Store\* -msjpg;jpeg;gif;png;mp3;mpeg;avi;mov;mp4;zip;rar;arj;7z;gz;sqx)
+   wypakowanie:
+   /usr/bin/rar/x64/unrar e -r -o- /volume1/backup/*.rar /volume1/extracted
+
+7ZIP DIFFERENTIAL BACKUP:
+<state> | State condition
+p | File exists in archive, but is not matched with wildcard.   Exists, but is   not matched 
+q | File exists in archive, but doesn't exist on disk.
+r | File doesn't exist in archive, but exists on disk.
+x | File in archive is newer than the file on disk.
+y | File in archive is older than the file on disk.
+z | File in archive is same as the file on disk
+w | Can not be detected what file is newer (times are the same, sizes are different)
+<action> | Description 
+0 | Ignore file (don't create item in new archive for this file) 
+1 | Copy file (copy from old archive to new) 
+2 | Compress (compress file from disk to new archive) 
+3 | Create Anti-item (item that will delete file or directory during extracting). This feature is supported only in 7z format. 
+
+7zip errors:
+   0 = No error.
+   1 = Warning (Non fatal error(s)). For example, one or more files were locked by some other application, so they were not compressed.
+   2 = Fatal error.
+   7 = Command line error.
+   8 = Not enough memory for operation.
+   255 = User stopped the process.
+
+
+   p - File exists in archive, but is not matched with wildcard.
+   q - File exists in archive, but doesn't exist on disk.
+   r - File doesn't exist in archive, but exists on disk.
+   x - File in archive is newer than the file on disk.
+   y - File in archive is older than the file on disk.
+   z - File in archive is same as the file on disk
+   w - Can not be detected what file is newer (times are the same, sizes are different)
+   0 Ignore file (don't create item in new archive for this file)
+   1 Copy file (copy from old archive to new)
+   2 Compress (compress file from disk to new archive)
+   3 Create Anti-item (item that will delete file or directory during extracting). This feature is supported only in 7z format
+
+# -md=32m or 512m -dictionary size
+# -mfb=64 -number of fast bytes for LZMA = 64
+
+Raportowanie tylko istotnych czynności w 7zip'ie
+   | findstr /i /v "pavlov scanning compressing" >> $LOG_FILE2" 2>&1
+
+PRZYDATNE POLECENIA CMD:
+   restart webserwer DSM 5
+      synoservicectl --restart httpd-user
+   restart webserwer DSM 6
+      synoservice --restart pkgctl-WebStation
+   
+   Utwórz nowy pusty plik backup.sh
+      echo "" > /volume1/backup/backup.sh
+   
+   benchmark dla 7z'a (nie odpalaj na nasie, trzeba będzie zabić watek [komenda PS a nastepnie odnajdujemy numer watku a nastepnie kill -SIGTERM numerwatku]):
+      7z b -mm=*
+   
+   mój wynik:
+      RAM size:    1987 MB,  # CPU hardware threads:   4
+      RAM usage:    850 MB,  # Benchmark threads:      4
+   
+      Dict        Compressing          |        Decompressing
+            Speed Usage    R/U Rating  |    Speed Usage    R/U Rating
+             KB/s     %   MIPS   MIPS  |     KB/s     %   MIPS   MIPS
+   
+      22:    4207   304   1344   4093  |    70153   396   1598   6329
+      23:    4205   314   1364   4284  |    69075   395   1598   6321
+      24:    4218   327   1388   4536  |    67870   394   1596   6296
+      25:    4188   338   1413   4782  |    67188   395   1598   6318
+      ----------------------------------------------------------------
+      Avr:          321   1377   4424               395   1597   6316
+      Tot:          358   1487   5370
+   
+restart mariadb w synology DSM 5.2
+   /usr/syno/bin/synopkg restart MariaDB
+restart mysql w starszych DSM'ach:
+   /usr/syno/etc/rc.d/S21mysql.sh restart
+
+ubijanie procesu
+   kill -SIGTERM PID_ID
+
+wysyłanie PING
+   ping -c 10 -s 56 google.com
+
+MYSQLDUMP:
+   -q (quick): This option is useful for dumping large tables. It forces mysqldump to retrieve rows for a table from the server 
+   a row at a time rather than retrieving the entire row set and buffering it in memory before writing it out.
+
+    # większa baza gdy ustawisz:
+    #   1) --extended-insert=FALSE #gdy false każdy insert będzie w nowej linii
+    #   2) --complete-insert=TRUE  #gdy true to każdy insert będzie poprzedzony nazwą nagłówka kolumny
+    #   3) --no-create-info=true   #tylko dane bez schematu
+    # --flush-privileges=TRUE oraz --flush-logs=TRUE -> musiały tutaj zostać usunięte bo często hosting nie daje takich wysokich uprawnień na użytkownika
+        # generuje to błąd typu: "Couldn't execute 'FLUSH TABLES': Access denied; you need (at least one of) the RELOAD privilege(s) for this operation (1227)"
+
+
+    # lub tar'em (przyrostowy plik, brak szyfrowania i zabezpieczenia hasłem)
+    # tar -g ${BACKUP_DIR}/tar-incremental.log -zcvf ${BACKUP_DIR}/backup_db_${DB}_${TIMESTAMP}.tar.gz ${BACKUP_DIR}/backup_db_${DB}_${TIMESTAMP}.sql
+    
+    # lub gzip'em (brak szyfrowania i zabezpieczenia hasłem)
+    # gzip ${BACKUP_DIR}/backup_db_${DB}_${TIMESTAMP}.sql
+    
+    # lub rar'em (brak szyfrowania i zabezpieczenia hasłem)
+    # rar a -ep "!?&Enter an Archive Name:?archive.rar!" !&
+
+
+SPRAWDZENIE ADRESU IP:
+   curl ipinfo.io/ADDRESS_IP
+   curl ifconfig.me/ADDRESS_IP
+
+
+# ftp.oboom.com 50 GB, pliki na max 30 dni
+# ftp.bigfile.to - 50 GB / 2 GB na plik / pliki max 30 dni
+# ftp.openload.co - pliki max 30 dni
+
+
+ którego trzeba pobrać z (http://www.ncftp.com/download/)
+# i skopiować do "/usr/bin/ncftp" a następnie nadać uprawnienia 755 (na katalog i pliki w nim)
+# 
+# chmury z obsługą FTP takie jak "bigfile.to" oraz "openload.co" wymagają NCFTP bo na CURL'u nie działa 
+# poprawnie upload plików, błędy typu:
+#   "Server denied you to change to the given directory"
+#   "Uploaded unaligned file size (0 out of 132954 bytes)"
+#   "Couldn't set desired mode"
+
+
+
+
+
+
+
+
+
+
+
+C:\xampp\mysql\bin\mysqldump.exe
+--result-file="export.sql"          # nazwa pliku wynikowego
+--host=localhost                    # adres hosta
+--port=3306                         # port
+--user="fixer"                      # login
+--password="haslo"                  # haslo
+--databases "test"                  # nazwa bazy danych
+--all-databases                     # lub wszystkie bazy
+
+--default-character-set=utf8        # użyty standard kodowania znaków w pliku wynikowym
+--protocol=tcp                      # użyty protokół (tcp, socket, pipe, memory)
+--add-drop-database                 # czy dodać drop database
+--add-drop-table                    # czy dodać drop table
+
+--add-locks=false                   # czy zablokować komendy wstawiania danych do bazy "insert"
+--single-transaction=false          # czy export objąć transakcją (tylko silnik innoDB)
+--flush-privileges=true             # czy przeładować uprawnienia (wymaga wysokich uprawnień)
+--flush-logs=true                   # czy przeładować logi (wymaga wysokich uprawnień)
+--no-create-info=false              # true - exportuj tylko dane bez schematu
+--complete-insert=false             # true - każdy insert będzie poprzedzony nazwą nagłówka kolumny
+--extended-insert=false             # false - każdy insert będzie w nowej linii
+
+--hex-blob                          # exportuj dane binarne do postaci bardziej kompatybilnych numerów hex
+--log-error="db_error.log"          # Append warnings and errors to given file
+--debug-info                        # Print some debug info at exit
+
+--skip-triggers                     # bez triggerów
+--compact                           # less verbose (mniejszy plik wynikowy)
+--comments                          # dodaj komentarze
+--opt                               # Enabled: --add-drop-table, --add-locks, --create-options, --quick, --extended-insert, --lock-tables, --set-charset, --disable-keys
+--skip-opt                          # Disable: --add-drop-table, --add-locks, --create-options, --quick, --extended-insert, --lock-tables, --set-charset, --disable-keys
+--force=true                        # exportuj nawet gdy wykryto jakieś błędy/problemy z rekordami
+--quick                             # Don't buffer query, dump directly to stdout
+--routines                          # Dump stored routines (functions and procedures)
+--events                            # dump events
+--triggers                          # dump triggers
+--verbose                           # Print info about the various stages.
+
+
+
+
+
+mysqldump  Ver 10.14 Distrib 5.5.47-MariaDB, for Linux ()
+Copyright (c) 2000, 2015, Oracle, MariaDB Corporation Ab and others.
+
+Dumping structure and contents of MySQL databases and tables.
+Usage: mysqldump [OPTIONS] database [tables]
+OR     mysqldump [OPTIONS] --databases [OPTIONS] DB1 [DB2 DB3...]
+OR     mysqldump [OPTIONS] --all-databases [OPTIONS]
+
+Default options are read from the following files in the given order:
+/etc/my.cnf /etc/mysql/my.cnf ~/.my.cnf 
+The following groups are read: mysqldump client client-server client-mariadb
+The following options may be given as the first argument:
+--print-defaults        Print the program argument list and exit.
+--no-defaults           Don't read default options from any option file.
+--defaults-file=#       Only read default options from the given file #.
+--defaults-extra-file=# Read this file after the global files are read.
+
+  -A, --all-databases Dump all the databases. This will be same as --databases
+                      with all databases selected.
+  -Y, --all-tablespaces 
+                      Dump all the tablespaces.
+  -y, --no-tablespaces 
+                      Do not dump any tablespace information.
+  --add-drop-database Add a DROP DATABASE before each create.
+  --add-drop-table    Add a DROP TABLE before each create.
+                      (Defaults to on; use --skip-add-drop-table to disable.)
+  --add-locks         Add locks around INSERT statements.
+                      (Defaults to on; use --skip-add-locks to disable.)
+  --allow-keywords    Allow creation of column names that are keywords.
+  --apply-slave-statements 
+                      Adds 'STOP SLAVE' prior to 'CHANGE MASTER' and 'START
+                      SLAVE' to bottom of dump.
+  --character-sets-dir=name 
+                      Directory for character set files.
+  -i, --comments      Write additional information.
+                      (Defaults to on; use --skip-comments to disable.)
+  --compatible=name   Change the dump to be compatible with a given mode. By
+                      default tables are dumped in a format optimized for
+                      MySQL. Legal modes are: ansi, mysql323, mysql40,
+                      postgresql, oracle, mssql, db2, maxdb, no_key_options,
+                      no_table_options, no_field_options. One can use several
+                      modes separated by commas. Note: Requires MySQL server
+                      version 4.1.0 or higher. This option is ignored with
+                      earlier server versions.
+  --compact           Give less verbose output (useful for debugging). Disables
+                      structure comments and header/footer constructs.  Enables
+                      options --skip-add-drop-table --skip-add-locks
+                      --skip-comments --skip-disable-keys --skip-set-charset.
+  -c, --complete-insert 
+                      Use complete insert statements.
+  -C, --compress      Use compression in server/client protocol.
+  -a, --create-options 
+                      Include all MySQL specific create options.
+                      (Defaults to on; use --skip-create-options to disable.)
+  -B, --databases     Dump several databases. Note the difference in usage; in
+                      this case no tables are given. All name arguments are
+                      regarded as database names. 'USE db_name;' will be
+                      included in the output.
+  -#, --debug[=#]     This is a non-debug version. Catch this and exit.
+  --debug-check       Check memory and open file usage at exit.
+  --debug-info        Print some debug info at exit.
+  --default-character-set=name 
+                      Set the default character set.
+  --delayed-insert    Insert rows with INSERT DELAYED.
+  --delete-master-logs 
+                      Delete logs on master after backup. This automatically
+                      enables --master-data.
+  -K, --disable-keys  '/*!40000 ALTER TABLE tb_name DISABLE KEYS */; and
+                      '/*!40000 ALTER TABLE tb_name ENABLE KEYS */; will be put
+                      in the output.
+                      (Defaults to on; use --skip-disable-keys to disable.)
+  --dump-slave[=#]    This causes the binary log position and filename of the
+                      master to be appended to the dumped data output. Setting
+                      the value to 1, will printit as a CHANGE MASTER command
+                      in the dumped data output; if equal to 2, that command
+                      will be prefixed with a comment symbol. This option will
+                      turn --lock-all-tables on, unless --single-transaction is
+                      specified too (in which case a global read lock is only
+                      taken a short time at the beginning of the dump - don't
+                      forget to read about --single-transaction below). In all
+                      cases any action on logs will happen at the exact moment
+                      of the dump.Option automatically turns --lock-tables off.
+  -E, --events        Dump events.
+  -e, --extended-insert 
+                      Use multiple-row INSERT syntax that include several
+                      VALUES lists.
+                      (Defaults to on; use --skip-extended-insert to disable.)
+  --fields-terminated-by=name 
+                      Fields in the output file are terminated by the given
+                      string.
+  --fields-enclosed-by=name 
+                      Fields in the output file are enclosed by the given
+                      character.
+  --fields-optionally-enclosed-by=name 
+                      Fields in the output file are optionally enclosed by the
+                      given character.
+  --fields-escaped-by=name 
+                      Fields in the output file are escaped by the given
+                      character.
+  -F, --flush-logs    Flush logs file in server before starting dump. Note that
+                      if you dump many databases at once (using the option
+                      --databases= or --all-databases), the logs will be
+                      flushed for each database dumped. The exception is when
+                      using --lock-all-tables or --master-data: in this case
+                      the logs will be flushed only once, corresponding to the
+                      moment all tables are locked. So if you want your dump
+                      and the log flush to happen at the same exact moment you
+                      should use --lock-all-tables or --master-data with
+                      --flush-logs.
+  --flush-privileges  Emit a FLUSH PRIVILEGES statement after dumping the mysql
+                      database.  This option should be used any time the dump
+                      contains the mysql database and any other database that
+                      depends on the data in the mysql database for proper
+                      restore. 
+  -f, --force         Continue even if we get an SQL error.
+  -?, --help          Display this help message and exit.
+  --hex-blob          Dump binary strings (BINARY, VARBINARY, BLOB) in
+                      hexadecimal format.
+  -h, --host=name     Connect to host.
+  --ignore-table=name Do not dump the specified table. To specify more than one
+                      table to ignore, use the directive multiple times, once
+                      for each table.  Each table must be specified with both
+                      database and table names, e.g.,
+                      --ignore-table=database.table.
+  --include-master-host-port 
+                      Adds 'MASTER_HOST=<host>, MASTER_PORT=<port>' to 'CHANGE
+                      MASTER TO..' in dump produced with --dump-slave.
+  --insert-ignore     Insert rows with INSERT IGNORE.
+  --lines-terminated-by=name 
+                      Lines in the output file are terminated by the given
+                      string.
+  -x, --lock-all-tables 
+                      Locks all tables across all databases. This is achieved
+                      by taking a global read lock for the duration of the
+                      whole dump. Automatically turns --single-transaction and
+                      --lock-tables off.
+  -l, --lock-tables   Lock all tables for read.
+                      (Defaults to on; use --skip-lock-tables to disable.)
+  --log-error=name    Append warnings and errors to given file.
+  --master-data[=#]   This causes the binary log position and filename to be
+                      appended to the output. If equal to 1, will print it as a
+                      CHANGE MASTER command; if equal to 2, that command will
+                      be prefixed with a comment symbol. This option will turn
+                      --lock-all-tables on, unless --single-transaction is
+                      specified too (on servers before MariaDB 5.3 this will
+                      still take a global read lock for a short time at the
+                      beginning of the dump; don't forget to read about
+                      --single-transaction below). In all cases, any action on
+                      logs will happen at the exact moment of the dump. Option
+                      automatically turns --lock-tables off.
+  --max-allowed-packet=# 
+                      The maximum packet length to send to or receive from
+                      server.
+  --net-buffer-length=# 
+                      The buffer size for TCP/IP and socket communication.
+  --no-autocommit     Wrap tables with autocommit/commit statements.
+  -n, --no-create-db  Suppress the CREATE DATABASE ... IF EXISTS statement that
+                      normally is output for each dumped database if
+                      --all-databases or --databases is given.
+  -t, --no-create-info 
+                      Don't write table creation info.
+  -d, --no-data       No row information.
+  -N, --no-set-names  Same as --skip-set-charset.
+  --opt               Same as --add-drop-table, --add-locks, --create-options,
+                      --quick, --extended-insert, --lock-tables, --set-charset,
+                      and --disable-keys. Enabled by default, disable with
+                      --skip-opt.
+  --order-by-primary  Sorts each table's rows by primary key, or first unique
+                      key, if such a key exists.  Useful when dumping a MyISAM
+                      table to be loaded into an InnoDB table, but will make
+                      the dump itself take considerably longer.
+  -p, --password[=name] 
+                      Password to use when connecting to server. If password is
+                      not given it's solicited on the tty.
+  -P, --port=#        Port number to use for connection.
+  --protocol=name     The protocol to use for connection (tcp, socket, pipe,
+                      memory).
+  -q, --quick         Don't buffer query, dump directly to stdout.
+                      (Defaults to on; use --skip-quick to disable.)
+  -Q, --quote-names   Quote table and column names with backticks (`).
+                      (Defaults to on; use --skip-quote-names to disable.)
+  --replace           Use REPLACE INTO instead of INSERT INTO.
+  -r, --result-file=name 
+                      Direct output to a given file. This option should be used
+                      in systems (e.g., DOS, Windows) that use carriage-return
+                      linefeed pairs (\r\n) to separate text lines. This option
+                      ensures that only a single newline is used.
+  -R, --routines      Dump stored routines (functions and procedures).
+  --set-charset       Add 'SET NAMES default_character_set' to the output.
+                      (Defaults to on; use --skip-set-charset to disable.)
+  --single-transaction 
+                      Creates a consistent snapshot by dumping all tables in a
+                      single transaction. Works ONLY for tables stored in
+                      storage engines which support multiversioning (currently
+                      only InnoDB does); the dump is NOT guaranteed to be
+                      consistent for other storage engines. While a
+                      --single-transaction dump is in process, to ensure a
+                      valid dump file (correct table contents and binary log
+                      position), no other connection should use the following
+                      statements: ALTER TABLE, DROP TABLE, RENAME TABLE,
+                      TRUNCATE TABLE, as consistent snapshot is not isolated
+                      from them. Option automatically turns off --lock-tables.
+  --dump-date         Put a dump date to the end of the output.
+                      (Defaults to on; use --skip-dump-date to disable.)
+  --skip-opt          Disable --opt. Disables --add-drop-table, --add-locks,
+                      --create-options, --quick, --extended-insert,
+                      --lock-tables, --set-charset, and --disable-keys.
+  -S, --socket=name   The socket file to use for connection.
+  --ssl               Enable SSL for connection (automatically enabled with
+                      other flags).
+  --ssl-ca=name       CA file in PEM format (check OpenSSL docs, implies
+                      --ssl).
+  --ssl-capath=name   CA directory (check OpenSSL docs, implies --ssl).
+  --ssl-cert=name     X509 cert in PEM format (implies --ssl).
+  --ssl-cipher=name   SSL cipher to use (implies --ssl).
+  --ssl-key=name      X509 key in PEM format (implies --ssl).
+  --ssl-verify-server-cert 
+                      Verify server's "Common Name" in its cert against
+                      hostname used when connecting. This option is disabled by
+                      default.
+  -T, --tab=name      Create tab-separated textfile for each table to given
+                      path. (Create .sql and .txt files.) NOTE: This only works
+                      if mysqldump is run on the same machine as the mysqld
+                      server.
+  --tables            Overrides option --databases (-B).
+  --triggers          Dump triggers for each dumped table.
+                      (Defaults to on; use --skip-triggers to disable.)
+  --tz-utc            SET TIME_ZONE='+00:00' at top of dump to allow dumping of
+                      TIMESTAMP data when a server has data in different time
+                      zones or data is being moved between servers with
+                      different time zones.
+                      (Defaults to on; use --skip-tz-utc to disable.)
+  -u, --user=name     User for login if not current user.
+  -v, --verbose       Print info about the various stages.
+  -V, --version       Output version information and exit.
+  -w, --where=name    Dump only selected records. Quotes are mandatory.
+  -X, --xml           Dump a database as well formed XML.
+  --plugin-dir=name   Directory for client-side plugins.
+  --default-auth=name Default authentication client-side plugin to use.
+
+Variables (--variable-name=value)
+and boolean options {FALSE|TRUE}  Value (after reading options)
+--------------------------------- ----------------------------------------
+all-databases                     FALSE
+all-tablespaces                   FALSE
+no-tablespaces                    FALSE
+add-drop-database                 FALSE
+add-drop-table                    TRUE
+add-locks                         TRUE
+allow-keywords                    FALSE
+apply-slave-statements            FALSE
+character-sets-dir                (No default value)
+comments                          TRUE
+compatible                        (No default value)
+compact                           FALSE
+complete-insert                   FALSE
+compress                          FALSE
+create-options                    TRUE
+databases                         FALSE
+debug-check                       FALSE
+debug-info                        FALSE
+default-character-set             utf8
+delayed-insert                    FALSE
+delete-master-logs                FALSE
+disable-keys                      TRUE
+dump-slave                        0
+events                            FALSE
+extended-insert                   TRUE
+fields-terminated-by              (No default value)
+fields-enclosed-by                (No default value)
+fields-optionally-enclosed-by     (No default value)
+fields-escaped-by                 (No default value)
+flush-logs                        FALSE
+flush-privileges                  FALSE
+force                             FALSE
+hex-blob                          FALSE
+host                              (No default value)
+include-master-host-port          FALSE
+insert-ignore                     FALSE
+lines-terminated-by               (No default value)
+lock-all-tables                   FALSE
+lock-tables                       TRUE
+log-error                         (No default value)
+master-data                       0
+max-allowed-packet                419430400
+net-buffer-length                 1046528
+no-autocommit                     FALSE
+no-create-db                      FALSE
+no-create-info                    FALSE
+no-data                           FALSE
+order-by-primary                  FALSE
+port                              3306
+quick                             TRUE
+quote-names                       TRUE
+replace                           FALSE
+routines                          FALSE
+set-charset                       TRUE
+single-transaction                FALSE
+dump-date                         TRUE
+socket                            /run/mysqld/mysqld.sock
+ssl                               FALSE
+ssl-ca                            (No default value)
+ssl-capath                        (No default value)
+ssl-cert                          (No default value)
+ssl-cipher                        (No default value)
+ssl-key                           (No default value)
+ssl-verify-server-cert            FALSE
+tab                               (No default value)
+triggers                          TRUE
+tz-utc                            TRUE
+user                              fixer
+verbose                           FALSE
+where                             (No default value)
+plugin-dir                        (No default value)
+default-auth                      (No default value)
+
+-------------------
+
+
+Usage: tar [OPTION...] [FILE]...
+GNU `tar' saves many files together into a single tape or disk archive, and can
+restore individual files from the archive.
+
+Examples:
+  tar -cf archive.tar foo bar  # Create archive.tar from files foo and bar.
+  tar -tvf archive.tar         # List all files in archive.tar verbosely.
+  tar -xf archive.tar          # Extract all files from archive.tar.
+
+ Main operation mode:
+
+  -A, --catenate, --concatenate   append tar files to an archive
+  -c, --create               create a new archive
+  -d, --diff, --compare      find differences between archive and file system
+      --delete               delete from the archive (not on mag tapes!)
+  -r, --append               append files to the end of an archive
+  -t, --list                 list the contents of an archive
+      --test-label           test the archive volume label and exit
+  -u, --update               only append files newer than copy in archive
+  -x, --extract, --get       extract files from an archive
+
+ Operation modifiers:
+
+      --check-device         check device numbers when creating incremental
+                             archives (default)
+  -g, --listed-incremental=FILE   handle new GNU-format incremental backup
+  -G, --incremental          handle old GNU-format incremental backup
+      --ignore-failed-read   do not exit with nonzero on unreadable files
+      --level=NUMBER         dump level for created listed-incremental archive
+  -n, --seek                 archive is seekable
+      --no-check-device      do not check device numbers when creating
+                             incremental archives
+      --no-seek              archive is not seekable
+      --occurrence[=NUMBER]  process only the NUMBERth occurrence of each file
+                             in the archive; this option is valid only in
+                             conjunction with one of the subcommands --delete,
+                             --diff, --extract or --list and when a list of
+                             files is given either on the command line or via
+                             the -T option; NUMBER defaults to 1
+      --sparse-version=MAJOR[.MINOR]
+                             set version of the sparse format to use (implies
+                             --sparse)
+  -S, --sparse               handle sparse files efficiently
+
+ Overwrite control:
+
+  -k, --keep-old-files       don't replace existing files when extracting
+      --keep-newer-files     don't replace existing files that are newer than
+                             their archive copies
+      --no-overwrite-dir     preserve metadata of existing directories
+      --overwrite            overwrite existing files when extracting
+      --overwrite-dir        overwrite metadata of existing directories when
+                             extracting (default)
+      --recursive-unlink     empty hierarchies prior to extracting directory
+      --remove-files         remove files after adding them to the archive
+  -U, --unlink-first         remove each file prior to extracting over it
+  -W, --verify               attempt to verify the archive after writing it
+
+ Select output stream:
+
+      --ignore-command-error ignore exit codes of children
+      --no-ignore-command-error   treat non-zero exit codes of children as
+                             error
+  -O, --to-stdout            extract files to standard output
+      --to-command=COMMAND   pipe extracted files to another program
+
+ Handling of file attributes:
+
+      --atime-preserve[=METHOD]   preserve access times on dumped files, either
+                             by restoring the times after reading
+                             (METHOD='replace'; default) or by not setting the
+                             times in the first place (METHOD='system')
+      --delay-directory-restore   delay setting modification times and
+                             permissions of extracted directories until the end
+                             of extraction
+      --group=NAME           force NAME as group for added files
+      --mode=CHANGES         force (symbolic) mode CHANGES for added files
+      --mtime=DATE-OR-FILE   set mtime for added files from DATE-OR-FILE
+  -m, --touch                don't extract file modified time
+      --no-delay-directory-restore
+                             cancel the effect of --delay-directory-restore
+                             option
+      --no-same-owner        extract files as yourself (default for ordinary
+                             users)
+      --no-same-permissions  apply the user's umask when extracting permissions
+                             from the archive (default for ordinary users)
+      --numeric-owner        always use numbers for user/group names
+      --owner=NAME           force NAME as owner for added files
+  -p, --preserve-permissions, --same-permissions
+                             extract information about file permissions
+                             (default for superuser)
+      --preserve             same as both -p and -s
+      --same-owner           try extracting files with the same ownership as
+                             exists in the archive (default for superuser)
+  -s, --preserve-order, --same-order
+                             sort names to extract to match archive
+
+ Device selection and switching:
+
+  -f, --file=ARCHIVE         use archive file or device ARCHIVE
+      --force-local          archive file is local even if it has a colon
+  -F, --info-script=NAME, --new-volume-script=NAME
+                             run script at end of each tape (implies -M)
+  -L, --tape-length=NUMBER   change tape after writing NUMBER x 1024 bytes
+  -M, --multi-volume         create/list/extract multi-volume archive
+      --rmt-command=COMMAND  use given rmt COMMAND instead of rmt
+      --rsh-command=COMMAND  use remote COMMAND instead of rsh
+      --volno-file=FILE      use/update the volume number in FILE
+
+ Device blocking:
+
+  -b, --blocking-factor=BLOCKS   BLOCKS x 512 bytes per record
+  -B, --read-full-records    reblock as we read (for 4.2BSD pipes)
+  -i, --ignore-zeros         ignore zeroed blocks in archive (means EOF)
+      --record-size=NUMBER   NUMBER of bytes per record, multiple of 512
+
+ Archive format selection:
+
+  -H, --format=FORMAT        create archive of the given format
+
+ FORMAT is one of the following:
+
+    gnu                      GNU tar 1.13.x format
+    oldgnu                   GNU format as per tar <= 1.12
+    pax                      POSIX 1003.1-2001 (pax) format
+    posix                    same as pax
+    ustar                    POSIX 1003.1-1988 (ustar) format
+    v7                       old V7 tar format
+
+      --old-archive, --portability
+                             same as --format=v7
+      --pax-option=keyword[[:]=value][,keyword[[:]=value]]...
+                             control pax keywords
+      --posix                same as --format=posix
+  -V, --label=TEXT           create archive with volume name TEXT; at
+                             list/extract time, use TEXT as a globbing pattern
+                             for volume name
+
+ Compression options:
+
+  -a, --auto-compress        use archive suffix to determine the compression
+                             program
+  -I, --use-compress-program=PROG
+                             filter through PROG (must accept -d)
+  -j, --bzip2                filter the archive through bzip2
+  -J, --xz                   filter the archive through xz
+      --lzip                 filter the archive through lzip
+      --lzma                 filter the archive through lzma
+      --lzop
+      --no-auto-compress     do not use archive suffix to determine the
+                             compression program
+  -z, --gzip, --gunzip, --ungzip   filter the archive through gzip
+  -Z, --compress, --uncompress   filter the archive through compress
+
+ Local file selection:
+
+      --add-file=FILE        add given FILE to the archive (useful if its name
+                             starts with a dash)
+      --backup[=CONTROL]     backup before removal, choose version CONTROL
+  -C, --directory=DIR        change to directory DIR
+      --exclude=PATTERN      exclude files, given as a PATTERN
+      --exclude-backups      exclude backup and lock files
+      --exclude-caches       exclude contents of directories containing
+                             CACHEDIR.TAG, except for the tag file itself
+      --exclude-caches-all   exclude directories containing CACHEDIR.TAG
+      --exclude-caches-under exclude everything under directories containing
+                             CACHEDIR.TAG
+      --exclude-tag=FILE     exclude contents of directories containing FILE,
+                             except for FILE itself
+      --exclude-tag-all=FILE exclude directories containing FILE
+      --exclude-tag-under=FILE   exclude everything under directories
+                             containing FILE
+      --exclude-vcs          exclude version control system directories
+  -h, --dereference          follow symlinks; archive and dump the files they
+                             point to
+      --hard-dereference     follow hard links; archive and dump the files they
+                             refer to
+  -K, --starting-file=MEMBER-NAME
+                             begin at member MEMBER-NAME in the archive
+      --newer-mtime=DATE     compare date and time when data changed only
+      --no-null              disable the effect of the previous --null option
+      --no-recursion         avoid descending automatically in directories
+      --no-unquote           do not unquote filenames read with -T
+      --null                 -T reads null-terminated names, disable -C
+  -N, --newer=DATE-OR-FILE, --after-date=DATE-OR-FILE
+                             only store files newer than DATE-OR-FILE
+      --one-file-system      stay in local file system when creating archive
+  -P, --absolute-names       don't strip leading `/'s from file names
+      --recursion            recurse into directories (default)
+      --suffix=STRING        backup before removal, override usual suffix ('~'
+                             unless overridden by environment variable
+                             SIMPLE_BACKUP_SUFFIX)
+  -T, --files-from=FILE      get names to extract or create from FILE
+      --unquote              unquote filenames read with -T (default)
+  -X, --exclude-from=FILE    exclude patterns listed in FILE
+
+ File name transformations:
+
+      --strip-components=NUMBER   strip NUMBER leading components from file
+                             names on extraction
+      --transform=EXPRESSION, --xform=EXPRESSION
+                             use sed replace EXPRESSION to transform file
+                             names
+
+ File name matching options (affect both exclude and include patterns):
+
+      --anchored             patterns match file name start
+      --ignore-case          ignore case
+      --no-anchored          patterns match after any `/' (default for
+                             exclusion)
+      --no-ignore-case       case sensitive matching (default)
+      --no-wildcards         verbatim string matching
+      --no-wildcards-match-slash   wildcards do not match `/'
+      --wildcards            use wildcards (default for exclusion)
+      --wildcards-match-slash   wildcards match `/' (default for exclusion)
+
+ Informative output:
+
+      --checkpoint[=NUMBER]  display progress messages every NUMBERth record
+                             (default 10)
+      --checkpoint-action=ACTION   execute ACTION on each checkpoint
+      --full-time            print file time to its full resolution
+      --index-file=FILE      send verbose output to FILE
+  -l, --check-links          print a message if not all links are dumped
+      --no-quote-chars=STRING   disable quoting for characters from STRING
+      --quote-chars=STRING   additionally quote characters from STRING
+      --quoting-style=STYLE  set name quoting style; see below for valid STYLE
+                             values
+  -R, --block-number         show block number within archive with each
+                             message
+      --show-defaults        show tar defaults
+      --show-omitted-dirs    when listing or extracting, list each directory
+                             that does not match search criteria
+      --show-transformed-names, --show-stored-names
+                             show file or archive names after transformation
+      --totals[=SIGNAL]      print total bytes after processing the archive;
+                             with an argument - print total bytes when this
+                             SIGNAL is delivered; Allowed signals are: SIGHUP,
+                             SIGQUIT, SIGINT, SIGUSR1 and SIGUSR2; the names
+                             without SIG prefix are also accepted
+      --utc                  print file modification times in UTC
+  -v, --verbose              verbosely list files processed
+      --warning=KEYWORD      warning control
+  -w, --interactive, --confirmation
+                             ask for confirmation for every action
+
+ Compatibility options:
+
+  -o                         when creating, same as --old-archive; when
+                             extracting, same as --no-same-owner
+
+ Other options:
+
+  -?, --help                 give this help list
+      --restrict             disable use of some potentially harmful options
+      --usage                give a short usage message
+      --version              print program version
+
+Mandatory or optional arguments to long options are also mandatory or optional
+for any corresponding short options.
+
+The backup suffix is `~', unless set with --suffix or SIMPLE_BACKUP_SUFFIX.
+The version control may be set with --backup or VERSION_CONTROL, values are:
+
+  none, off       never make backups
+  t, numbered     make numbered backups
+  nil, existing   numbered if numbered backups exist, simple otherwise
+  never, simple   always make simple backups
+
+Valid arguments for the --quoting-style option are:
+
+  literal
+  shell
+  shell-always
+  c
+  c-maybe
+  escape
+  locale
+  clocale
+
+*This* tar defaults to:
+--format=gnu -f- -b20 --quoting-style=escape --rmt-command=/usr/libexec/rmt
+
+Report bugs to <bug-tar@gnu.org>.
+
+
+
+---------------------------
+
+
+
+mysqlcheck -u [username] -p --all-databases --check-upgrade --auto-repair
+mysql_upgrade -u root -h localhost -p --verbose --force
+
+/sbin/initctl stop httpd-user
+szukanie pid:
+pidof synomkthumbd
+List File Descriptors: ls -l /proc/[pid]/fd
+
+
+---------------------------
+  pg_dump [OPTION]... [DBNAME] 
+
+Podstawowe opcje: 
+  -f, --file=FILENAME      nazwa pliku, w którym zapisany będzie dump 
+  -F, --format=c|t|p       format pliku (dowolny, tar, tekstowy) 
+  -i, --ignore-version     wymuś działanie nawet gdy wersja psql jest inna od wersji pg_dump 
+  -v, --verbose            verbose mode 
+  -Z, --compress=0-9       poziom kompresji (dla formatów skompresowanych) 
+  --help                   po dumpowaniu wyświetl pomoc 
+  --version                po dumpowaniu wyświetl informację o wersji 
+
+Opcje kontrolujące dumpowane dane: 
+  -a, --data-only             dumpuj tylko dane, bez schematu bazy danych 
+  -b, --blobs                 dumpuj także pola tylu blobs 
+  -c, --clean                 w dumpie najpierw wyczyć strukture (poprzez dropy) 
+  -C, --create                zamieść w dumpie komendę tworzenia bazy danych 
+  -d, --inserts               dumpuj dane jako oddzielne komendy INSERT commands (domyślnie dumpowanie jest poprzez COPY) 
+  -D, --column-inserts        dumpuj dane jako oddzielne komendy INSERT commands z nazwami kolumn (domyślnie dumpowanie jest poprzez COPY) 
+  -E, --encoding=ENCODING     dumpuj dane używając kodowania ENCODING 
+  -n, --schema=SCHEMA         dumpuj tylko schemat(y) SCHEMA 
+  -N, --exclude-schema=SCHEMA dumpuj wszystko oprócz schamat(ów) SCHEMA 
+  -o, --oids                  dumpuje wraz z numerami OID 
+  -O, --no-owner              pomiń zapis odnośnie właściciela bazy danych 
+  -s, --schema-only           dumuj tylko strukture bazy danych 
+  -S, --superuser=NAME        w dumpie będzie zawarta nazwa superusera 
+  -t, --table=TABLE           dumpuj jedynie tabele TABLE z bazy danych 
+  -T, --exclude-table=TABLE   dumpuj wszystkie tabele oprócz TABLE 
+  -x, --no-privileges         dumpuj z pominięciem praw dostępu (grant/revoke) 
+  --disable-dollar-quoting    dumpuj z pominięciem 'dollar quoting', zostanie użyte standardowy ' 
+  --disable-triggers          dumpuj z pominięciem procedur wyzwalanych automatycznie (triggers) 
+
+Opcje potrzebne do połączenia: 
+  -h, --host=HOSTNAME      serwer na którym postawiona jest baza 
+  -p, --port=PORT          port serwera pod którym baza jest dostępna (domyślnie: "5432") 
+  -U, --username=NAME      nazwa użytkownika bazy danych 
+  -W, --password           wymuszenie podania hasła
+
+
+  -------------------------------------------------------------------------------------------------------------
+
+  7-Zip (a) [32] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21
+p7zip Version 16.02 (locale=C,Utf16=off,HugeFiles=on,32 bits,4 CPUs Intel(R) Atom(TM) CPU  C2538  @ 2.40GHz (406D8),ASM,AES-NI)
+
+Usage: 7za <command> [<switches>...] <archive_name> [<file_names>...]
+       [<@listfiles...>]
+
+<Commands>
+  a : Add files to archive
+  b : Benchmark
+  d : Delete files from archive
+  e : Extract files from archive (without using directory names)
+  h : Calculate hash values for files
+  i : Show information about supported formats
+  l : List contents of archive
+  rn : Rename files in archive
+  t : Test integrity of archive
+  u : Update files to archive
+  x : eXtract files with full paths
+
+<Switches>
+  -- : Stop switches parsing
+  -ai[r[-|0]]{@listfile|!wildcard} : Include archives
+  -ax[r[-|0]]{@listfile|!wildcard} : eXclude archives
+  -ao{a|s|t|u} : set Overwrite mode
+  -an : disable archive_name field
+  -bb[0-3] : set output log level
+  -bd : disable progress indicator
+  -bs{o|e|p}{0|1|2} : set output stream for output/error/progress line
+  -bt : show execution time statistics
+  -i[r[-|0]]{@listfile|!wildcard} : Include filenames
+  -m{Parameters} : set compression Method
+    -mmt[N] : set number of CPU threads
+  -o{Directory} : set Output directory
+  -r[-|0] : Recurse subdirectories
+  -sa{a|e|s} : set Archive name mode
+  -scc{UTF-8|WIN|DOS} : set charset for for console input/output
+  -scs{UTF-8|UTF-16LE|UTF-16BE|WIN|DOS|{id}} : set charset for list files
+  -scrc[CRC32|CRC64|SHA1|SHA256|*] : set hash function for x, e, h commands
+  -sdel : delete files after compression
+  -seml[.] : send archive by email
+  -sfx[{name}] : Create SFX archive
+  -si[{name}] : read data from stdin
+  -slp : set Large Pages mode
+  -slt : show technical information for l (List) command
+  -snh : store hard links as links
+  -snl : store symbolic links as links
+  -sni : store NT security information
+  -sns[-] : store NTFS alternate streams
+  -so : write data to stdout
+  -spd : disable wildcard matching for file names
+  -spe : eliminate duplication of root folder for extract command
+  -spf : use fully qualified file paths
+  -ssc[-] : set sensitive case mode
+  -ssw : compress shared files
+  -stl : set archive timestamp from the most recently modified file
+  -stm{HexMask} : set CPU thread affinity mask (hexadecimal number)
+  -stx{Type} : exclude archive type
+  -t{Type} : Set type of archive
+  -u[-][p#][q#][r#][x#][y#][z#][!newArchiveName] : Update options
+  -v{Size}[b|k|m|g] : Create volumes
+  -w[{path}] : assign Work directory. Empty path means a temporary directory
+  -x[r[-|0]]{@listfile|!wildcard} : eXclude filenames
+  -y : assume Yes on all queries
+  
+  ----------------------------------------------------------
+  
+  echo @="ccrypt.exe -e -s -t -v -r -P \"Enter Files(s) Encryption Key: \" \"%%L\"" >> %TEMP%\ccrypt.reg
+echo @="ccrypt.exe -d -s -t -v -r -P \"Enter Files(s) Decryption Key: \" \"%%L\"" >> %TEMP%\ccrypt.reg
